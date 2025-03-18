@@ -8,6 +8,7 @@ const config = require('../../constants/config');
 const { AISERVER } = DETECTORS || {};
 
 const recognize = async ({ key }) => {
+  // console.log(key);
   const { URL } = AISERVER;
   const formData = new FormData();
   formData.append('image', fs.createReadStream(key));
@@ -16,6 +17,23 @@ const recognize = async ({ key }) => {
     timeout: AISERVER.TIMEOUT * 1000,
     headers: formData.getHeaders(),
     url: `${URL}/v1/vision/face/recognize`,
+    data: formData,
+    maxContentLength: 100000000,
+    maxBodyLength: 1000000000,
+  };
+  return axios(reqconfig);
+};
+
+const recognizePlate = async ({ key }) => {
+  const { URL } = AISERVER;
+  const formData = new FormData();
+  formData.append('image', fs.createReadStream(key));
+  const reqconfig = {
+    method: 'post',
+    timeout: AISERVER.TIMEOUT * 1000,
+    headers: formData.getHeaders(),
+    url: `${URL}/v1/image/alpr`,
+    // url: `${URL}/v1/vision/face/recognize`,
     data: formData,
     maxContentLength: 100000000,
     maxBodyLength: 1000000000,
@@ -95,4 +113,45 @@ const normalize = ({ camera, data }) => {
   });
   return normalized;
 };
-module.exports = { recognize, train, remove, normalize };
+
+const normalizePlate = ({ camera, data }) => {
+  if (!data.success) {
+    // compare with CoderProjectAI sources
+    // https://github.com/codeproject/CodeProject.AI-Server/blob/main/src/modules/FaceProcessing/intelligencelayer/face.py#L528
+    if (data.code === 500 && data.error === 'No plates found') {
+      console.log('ai.server found no face in image');
+      return [];
+    }
+    console.warn('unexpected ai.server data');
+    return [];
+  }
+  const { MATCH, UNKNOWN } = config.detect(camera);
+  if (!data.predictions) {
+    console.warn('unexpected ai.server predictions data');
+    return [];
+  }
+  const normalized = data.predictions.flatMap((obj) => {
+    const confidence = parseFloat((obj.confidence * 100).toFixed(2));
+    obj.userid = obj.userid ? obj.userid : obj.plate ? obj.plate : 'unknown';
+    const output = {
+      name: confidence >= UNKNOWN.CONFIDENCE ? obj.userid.toLowerCase() : 'unknown',
+      confidence,
+      match:
+        obj.userid !== 'unknown' &&
+        confidence >= MATCH.CONFIDENCE &&
+        (obj.x_max - obj.x_min) * (obj.y_max - obj.y_min) >= MATCH.MIN_AREA,
+      box: {
+        top: obj.y_min,
+        left: obj.x_min,
+        width: obj.x_max - obj.x_min,
+        height: obj.y_max - obj.y_min,
+      },
+    };
+    const checks = actions.checks({ MATCH, UNKNOWN, ...output });
+    if (checks.length) output.checks = checks;
+    return checks !== false ? output : [];
+  });
+  return normalized;
+};
+
+module.exports = { recognize, recognizePlate, train, remove, normalize, normalizePlate };

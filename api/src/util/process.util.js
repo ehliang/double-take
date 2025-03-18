@@ -8,7 +8,7 @@ const { parse, digest } = require('./auth.util');
 const mask = require('./mask-image.util');
 const sleep = require('./sleep.util');
 const opencv = require('./opencv');
-const { recognize, normalize } = require('./detectors/actions');
+const { recognize, recognizePlate, normalize, normalizePlate } = require('./detectors/actions');
 const { SERVER, STORAGE, UI } = require('../constants')();
 const DETECTORS = require('../constants/config').detectors();
 const config = require('../constants/config');
@@ -32,6 +32,7 @@ module.exports.polling = async (
       if (breakMatch === true && MATCH_IDS.includes(id)) break;
 
       const stream = await this.stream(url);
+      // console.log(url);
       const streamChanged = stream && previousContentLength !== stream.length;
       if (streamChanged) {
         const tmp = {
@@ -52,13 +53,19 @@ module.exports.polling = async (
           filesystem.writer(tmp.mask, buffer);
         }
 
+        // console.log(event);
+
         const results = await this.start({
           camera: event.camera,
+          label: event.label,
           filename,
           tmp: tmp.mask || tmp.source,
           attempts,
           errors,
         });
+
+        // console.log('results');
+        // console.log(results);
 
         const foundMatch = !!results.flatMap((obj) => obj.results.filter((item) => item.match))
           .length;
@@ -135,7 +142,7 @@ module.exports.save = async (event, results, filename, tmp) => {
   }
 };
 
-module.exports.start = async ({ camera, filename, tmp, attempts = 1, errors = {} }) => {
+module.exports.start = async ({ camera, label, filename, tmp, attempts = 1, errors = {} }) => {
   const processed = [];
   const promises = [];
 
@@ -152,7 +159,7 @@ module.exports.start = async ({ camera, filename, tmp, attempts = 1, errors = {}
     if (cameraAllowed) {
       const faceCount = faceCountRequired ? await opencv.faceCount(tmp) : null;
       if ((faceCountRequired && faceCount > 0) || !faceCountRequired) {
-        promises.push(this.process({ camera, detector, tmp, errors }));
+        promises.push(this.process({ camera, label, detector, tmp, errors }));
         processed.push(detector);
       } else console.verbose(`processing skipped for ${detector}: no faces found`);
     } else console.verbose(`processing skipped for ${detector}: ${camera} not allowed`);
@@ -172,13 +179,32 @@ module.exports.start = async ({ camera, filename, tmp, attempts = 1, errors = {}
   return results;
 };
 
-module.exports.process = async ({ camera, detector, tmp, errors }) => {
+module.exports.process = async ({ camera, label, detector, tmp, errors }) => {
   try {
     perf.start(detector);
-    const { data } = await recognize({ detector, key: tmp });
+    // console.log('tmp');
+    // console.log(tmp);
+    // const { data } = await recognize({ detector, key: tmp });
+    // console.log(camera);
+    let data;
+    if (label === 'car') {
+      console.log('cardet');
+      ({ data } = await recognizePlate({ detector, key: tmp }));
+    } else if (label === 'person') {
+      // console.log('person');
+      ({ data } = await recognize({ detector, key: tmp }));
+    }
+    // console.log(data);
     const duration = parseFloat((perf.stop(detector).time / 1000).toFixed(2));
     errors[detector] = 0;
-    return { duration, results: normalize({ camera, detector, data }) };
+    let res;
+    if (label === 'car') {
+      res = normalizePlate({ camera, detector, data });
+    } else if (label === 'person') {
+      // console.log('resperson');
+      res = normalize({ camera, detector, data });
+    }
+    return { duration, results: res };
   } catch (error) {
     error.message = `${detector} process error: ${error.message}`;
     if (error.code === 'ECONNABORTED') delete error.stack;

@@ -2,10 +2,15 @@ const factory = require('../factory');
 
 module.exports.recognize = ({ detector, key, test }) =>
   factory.get(detector).recognize({ key, test });
+
+module.exports.recognizePlate = ({ detector, key, test }) =>
+  factory.get(detector).recognizePlate({ key, test });
 module.exports.train = ({ name, key, detector }) => factory.get(detector).train({ name, key });
 module.exports.remove = ({ name, ids, detector }) => factory.get(detector).remove({ name, ids });
 module.exports.normalize = ({ camera, detector, data }) =>
   factory.get(detector).normalize({ camera, data });
+module.exports.normalizePlate = ({ camera, detector, data }) =>
+  factory.get(detector).normalizePlate({ camera, data });
 module.exports.checks = ({ MATCH, UNKNOWN, name, confidence, box }) => {
   const checks = [];
   if (name === 'unknown' && box.width * box.height < UNKNOWN.MIN_AREA) return false;

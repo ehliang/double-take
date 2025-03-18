@@ -68,8 +68,11 @@ const processMessage = ({ topic, message }) => {
 
   const frigate = async () => {
     const payload = JSON.parse(message.toString());
+
+    // console.log(payload);
     console.verbose(`Incoming event from frigate: ${message.toString()}`);
     if (payload.type === 'end') return;
+    if (payload.before === 'stationary') return;
 
     await axios({
       method: 'post',
